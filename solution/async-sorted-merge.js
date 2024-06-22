@@ -1,44 +1,49 @@
 "use strict";
 
+const Heap = require("heap");
+
 // Print all entries, across all of the *async* sources, in chronological order.
 
 module.exports = async (logSources, printer) => {
-  let entries = [];
-  let completedSources = 0;
+  const entryHeap = new Heap((log1, log2) => log1.date - log2.date);
 
   await Promise.all(
-    logSources.map(async (source, index) => {
-      const entry = await source.popAsync();
-      if (entry) {
-        entries[index] = entry;
-      } else {
-        completedSources++;
+    logSources.map(async (logSource, index) => {
+      const logEntry = await logSource.popAsync();
+      if (logEntry) {
+        entryHeap.push({ ...logEntry, sourceIndex: index });
       }
     })
   );
 
-  while (completedSources < logSources.length) {
-    let smallestIndex = -1;
-    let smallestEntry = null;
-    for (let i = 0; i < entries.length; i++) {
-      if (
-        entries[i] &&
-        (smallestEntry === null || entries[i].date < smallestEntry.date)
-      ) {
-        smallestEntry = entries[i];
-        smallestIndex = i;
-      }
+  let activeLogSources = logSources.filter((logSource) => !logSource.drained);
+
+  while (!entryHeap.empty()) {
+    await Promise.all(
+      activeLogSources.map(async (logSource, index) => {
+        const logEntry = await logSource.popAsync();
+        if (
+          logEntry &&
+          (entryHeap.empty() || logEntry.date >= entryHeap.peek().date)
+        ) {
+          entryHeap.push({ ...logEntry, sourceIndex: index });
+        }
+      })
+    );
+
+    activeLogSources = logSources.filter((logSource) => !logSource.drained);
+
+    const batchSize =
+      Math.floor(entryHeap.size() / activeLogSources.length) ||
+      entryHeap.size();
+
+    for (let i = 0; i < batchSize; i++) {
+      printer.print(entryHeap.pop());
     }
 
-    if (smallestIndex !== -1) {
-      printer.print(smallestEntry);
-
-      const nextEntry = await logSources[smallestIndex].popAsync();
-      if (nextEntry) {
-        entries[smallestIndex] = nextEntry;
-      } else {
-        entries[smallestIndex] = null;
-        completedSources++;
+    if (activeLogSources.length === 0) {
+      while (!entryHeap.empty()) {
+        printer.print(entryHeap.pop());
       }
     }
   }

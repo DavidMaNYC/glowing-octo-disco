@@ -1,43 +1,27 @@
 "use strict";
 
+const Heap = require("heap");
+
 // Print all entries, across all of the sources, in chronological order.
 
 module.exports = (logSources, printer) => {
-  let entries = [];
-  let completedSources = 0;
+  const entryHeap = new Heap((log1, log2) => log1.date - log2.date);
 
-  logSources.forEach((source, index) => {
-    const entry = source.pop();
-    if (entry) {
-      entries[index] = entry;
-    } else {
-      completedSources++;
+  logSources.forEach((logSource, index) => {
+    const logEntry = logSource.pop();
+    if (logEntry) {
+      entryHeap.push({ ...logEntry, sourceIndex: index });
     }
   });
 
-  while (completedSources < logSources.length) {
-    let smallestIndex = -1;
-    let smallestEntry = null;
-    for (let i = 0; i < entries.length; i++) {
-      if (
-        entries[i] &&
-        (smallestEntry === null || entries[i].date < smallestEntry.date)
-      ) {
-        smallestEntry = entries[i];
-        smallestIndex = i;
-      }
-    }
+  while (!entryHeap.empty()) {
+    const oldestLogEntry = entryHeap.pop();
+    printer.print(oldestLogEntry);
 
-    if (smallestIndex !== -1) {
-      printer.print(smallestEntry);
-
-      const nextEntry = logSources[smallestIndex].pop();
-      if (nextEntry) {
-        entries[smallestIndex] = nextEntry;
-      } else {
-        entries[smallestIndex] = null;
-        completedSources++;
-      }
+    const sourceIndex = oldestLogEntry.sourceIndex;
+    const newLogEntry = logSources[sourceIndex].pop();
+    if (newLogEntry) {
+      entryHeap.push({ ...newLogEntry, sourceIndex });
     }
   }
 
